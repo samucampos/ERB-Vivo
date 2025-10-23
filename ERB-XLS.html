@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Análise de ERB (em tempo real) da Operadora Vivo</title>
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+  
+  <style>
+    /* Estilos (mantidos da v26 + Estilos da Ajuda) */
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f4f7fa; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .header { background-color: #fff; border-bottom: 1px solid #e0e0e0; padding: 12px 24px; font-size: 1.25rem; font-weight: 600; color: #333; position: relative; } /* Adicionado position relative */
+    .kpi-bar { display: flex; flex-wrap: wrap; justify-content: space-around; background-color: #fff; border-bottom: 1px solid #e0e0e0; padding: 10px 16px; }
+    .kpi-item { text-align: center; padding: 5px; flex-basis: 15%; }
+    .kpi-title { font-size: 0.75rem; color: #667; text-transform: uppercase; font-weight: 600; }
+    .kpi-value { font-size: 1.0rem; font-weight: 700; color: #1a1a1a; margin-top: 4px; }
+    .container { display: flex; flex: 1; overflow: hidden; }
+    .map-container { flex: 1; position: relative; }
+    #map { height: 100%; width: 100%; }
+    .sidebar { width: 350px; background-color: #ffffff; border-left: 1px solid #e0e0e0; padding: 20px; overflow-y: auto; box-shadow: -2px 0 8px rgba(0,0,0,0.05); }
+    .sidebar h3 { margin-top: 0; border-bottom: 2px solid #1f6feb; padding-bottom: 8px; }
+    .file-controls { margin-bottom: 10px; }
+    #fileInput { width: 100%; margin-bottom: 10px; }
+    #loaded-files-list { list-style: none; padding: 0; margin: 0 0 15px 0; max-height: 100px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; background-color: #f9f9f9; }
+    #loaded-files-list li { padding: 6px 10px; font-size: 0.85rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+    #loaded-files-list li:last-child { border-bottom: none; }
+    .remove-file-btn { background: none; border: none; color: #dc3545; font-weight: bold; cursor: pointer; padding: 2px 5px; margin-left: 10px; }
+    .time-filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .time-filter-grid label { font-size: 0.8rem; font-weight: 600; color: #555; display: block; margin-bottom: 4px; }
+    .time-filter-grid input { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
+    .btn { padding: 8px 10px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 0.9rem; font-family: inherit; }
+    .btn-primary { background: #1f6feb; color: #fff; border-color: #1f6feb; font-weight: 600; }
+    .filter-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
+    .filter-buttons .btn { flex: 1; }
+    #erb-search { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; margin-bottom: 10px; }
+    .filter-list { max-height: 250px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 8px; }
+    .filter-list ul { list-style: none; padding-left: 0; margin: 0; }
+    .filter-list li { padding: 4px; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .filter-list input { margin-right: 8px; }
+    .filter-list .count { font-weight: 700; color: #1f6feb; float: right; }
+    .leaflet-popup-content-wrapper { border-radius: 8px; }
+    .leaflet-popup-content { font-size: 0.9rem; line-height: 1.5; }
+    .leaflet-popup-content b { color: #333; }
+    .leaflet-routing-container { display: none; }
+
+    /* --- Botão de Ajuda --- */
+    #help-button {
+        position: absolute;
+        top: 10px;
+        right: 20px;
+        background-color: #f0f0f0;
+        border: 1px solid #ccc;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        font-size: 1.1rem;
+        font-weight: bold;
+        color: #555;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+    #help-button:hover { background-color: #e0e0e0; }
+
+    /* --- Modal de Ajuda --- */
+    .modal-overlay {
+        display: none; /* Inicia oculto */
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5); 
+        z-index: 1000; 
+        justify-content: center;
+        align-items: center;
+    }
+    .modal-content {
+        background-color: #fff;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        max-width: 500px;
+        position: relative;
+        font-size: 0.95rem;
+        line-height: 1.6;
+    }
+    .modal-close-btn {
+        position: absolute;
+        top: 10px;
+        right: 15px;
+        background: none;
+        border: none;
+        font-size: 1.8rem;
+        font-weight: bold;
+        color: #aaa;
+        cursor: pointer;
+    }
+     .modal-close-btn:hover { color: #555; }
+     .modal-content h4 { margin-top: 0; color: #1f6feb;}
+  </style>
+</head>
+<body>
+  
+  <div class="header">
+    Análise de ERB (em tempo real) da Operadora Vivo
+    <button id="help-button" title="Ajuda">?</button>
+  </div>
+  
+  <div class="kpi-bar">
+    <div class="kpi-item"> <div class="kpi-title">Início da Coleta</div> <div class="kpi-value" id="kpi-start-time">--</div> </div>
+    <div class="kpi-item"> <div class="kpi-title">Fim da Coleta</div> <div class="kpi-value" id="kpi-end-time">--</div> </div>
+    <div class="kpi-item"> <div class="kpi-title">Duração Total</div> <div class="kpi-value" id="kpi-duration">--</div> </div>
+    <div class="kpi-item"> <div class="kpi-title">Total de Conexões</div> <div class="kpi-value" id="kpi-total-records">--</div> </div>
+    <div class="kpi-item"> <div class="kpi-title">Torres Únicas (Filtro)</div> <div class="kpi-value" id="kpi-unique-towers-filtered">--</div> </div>
+    <div class="kpi-item"> <div class="kpi-title">Total Torres (Arquivo)</div> <div class="kpi-value" id="kpi-unique-towers-total">--</div> </div>
+  </div>
+  
+  <div class="container">
+    <div class="map-container"> <div id="map"></div> </div>
+    <div class="sidebar">
+      <h3>Painel de Análise</h3>
+      
+      <div class="file-controls">
+          <input id="fileInput" type="file" accept=".csv, text/csv" multiple /> 
+      </div>
+      <ul id="loaded-files-list"></ul>
+      <small id="load-status" style="display: block; margin-bottom: 20px; color: #555;">Nenhum arquivo carregado.</small>
+      
+      <h4>Filtros de Data e Hora</h4>
+      <div class="time-filter-grid">
+        <div> <label for="start-date">Data Início</label> <input type="date" id="start-date"> </div>
+        <div> <label for="end-date">Data Fim</label> <input type="date" id="end-date"> </div>
+        <div> <label for="start-time">Hora Início</label> <input type="time" id="start-time" value="00:00"> </div>
+        <div> <label for="end-time">Hora Fim</label> <input type="time" id="end-time" value="23:59"> </div>
+      </div>
+      
+      <div class="filter-buttons">
+          <button id="apply-time-filter" class="btn btn-primary">Aplicar Filtro</button>
+          <button id="reset-time-filter" class="btn">Limpar Tempo</button>
+      </div>
+
+      <h4>Filtro de ERBs (Todas)</h4>
+      <input type="text" id="erb-search" placeholder="Pesquisar Célula...">
+      <div id="tower-filter-list" class="filter-list"> <small>Carregue um arquivo...</small> </div>
+
+      <h4 style="margin-top: 24px;">Atividade por Hora</h4>
+      <canvas id="hourlyChart"></canvas>
+      
+    </div>
+  </div>
+
+  <div id="help-modal-overlay" class="modal-overlay">
+      <div class="modal-content">
+          <button id="help-modal-close" class="modal-close-btn">&times;</button>
+          <h4>Instruções de Uso</h4>
+          <p>
+              É ncessário abrir o arquivo *.XLSX salvo do vigia e salva-lo como *.CSV antes de carregá-lo no sistema. Não é necessário fazer qualquer outro tratamento.
+          </p>
+          <small>
+              Observação: Certifique-se de que o arquivo CSV utilize ponto e vírgula (;) como delimitador e que os cabeçalhos das colunas estejam na linha 8, com os dados começando na linha 9.
+          </small>
+      </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+  <script>
+    // Variáveis globais (mantidas)
+    let map, routingControl;
+    let markersLayer = L.layerGroup();
+    let sectorLayer = L.layerGroup();
+    let routeLayer = L.layerGroup();
+    let baseLayers = {};
+    let overlayLayers = {};
+    let myHourlyChart;
+    let allProcessedData = [];
+    let allTowerCounts = {};
+    let originalMinDate = null; 
+    let originalMaxDate = null; 
+    let totalUniqueTowersInFile = 0; 
+    let loadedFileNames = new Set();
+
+    // --- FUNÇÕES DE CÁLCULO E FORMATAÇÃO (mantidas) ---
+    function destinationPoint(lat, lon, bearingDeg, distanceMeters){ const R=6378137; const br=bearingDeg*Math.PI/180; const dR=distanceMeters/R; const lat1=lat*Math.PI/180; const lon1=lon*Math.PI/180; const lat2=Math.asin(Math.sin(lat1)*Math.cos(dR)+Math.cos(lat1)*Math.sin(dR)*Math.cos(br)); const lon2=lon1+Math.atan2(Math.sin(br)*Math.sin(dR)*Math.cos(lat1),Math.cos(dR)-Math.sin(lat1)*Math.sin(lat2)); return [lat2*180/Math.PI, lon2*180/Math.PI]; }
+    function createSectorPolygon(lat, lon, az, angle, radius){ const center=[lat,lon]; const points=[center]; const steps=20; const stepAngle=angle/steps; const startBearing=az-(angle/2); for(let i=0;i<=steps;i++){ const bearing=startBearing+(i*stepAngle); const [arcLat,arcLon]=destinationPoint(lat,lon,bearing,radius); points.push([arcLat,arcLon]); } return points; }
+    function formatDuration(ms){ if(!isFinite(ms)||ms<0) return "--"; const seg=Math.floor(ms/1000); const min=Math.floor(seg/60); const h=Math.floor(min/60); const d=Math.floor(h/24); return `${d}d ${h%24}h ${min%60}m`; }
+    function formatDateTime(date){ if(!date) return "--"; return date.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+    function formatDateForInput(date){ if(!date) return ""; return date.toISOString().split('T')[0]; }
+
+    // --- FUNÇÕES DE RENDERIZAÇÃO (mantidas) ---
+    function rerenderDashboard(adjustZoom = false) { 
+        const uncheckedBoxes = document.querySelectorAll('.tower-filter-cb:not(:checked)');
+        const uncheckedTowerIDs = new Set(Array.from(uncheckedBoxes).map(cb => cb.value));
+        const timeFilters = getDateTimeFilters();
+        
+        const filteredData = allProcessedData.filter(r => {
+            const towerID = r['Célula Origem'];
+            if (towerID && uncheckedTowerIDs.has(towerID)) return false; 
+            if (timeFilters.startDate && r._timestamp < timeFilters.startDate) return false;
+            if (timeFilters.endDate && r._timestamp > timeFilters.endDate) return false;
+            const recordMinutes = (r._timestamp.getHours() * 60) + r._timestamp.getMinutes();
+            if (recordMinutes < timeFilters.startMinutes) return false;
+            if (recordMinutes > timeFilters.endMinutes) return false;
+            return true;
+        });
+        
+        markersLayer.clearLayers();
+        sectorLayer.clearLayers();
+        if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+
+        allTowerCounts = {}; 
+        filteredData.forEach(r => { if(r['Célula Origem']) { allTowerCounts[r['Célula Origem']] = (allTowerCounts[r['Célula Origem']] || 0) + 1; } });
+        updateFilterListVisibility(allTowerCounts); 
+
+        if (filteredData.length === 0) { updateKPIs(null); renderHourlyChart([]); routeLayer.clearLayers(); return; }
+
+        const startTime = filteredData[0]._timestamp;
+        const endTime = filteredData[filteredData.length - 1]._timestamp;
+        const duration = endTime - startTime;
+        const totalRecords = filteredData.length;
+        const uniqueTowersFiltered = new Set(filteredData.map(r => r['Célula Origem']).filter(Boolean)); 
+        updateKPIs({ startTime: startTime, endTime: endTime, duration: duration, totalRecords: totalRecords, uniqueTowersFiltered: uniqueTowersFiltered.size });
+
+        const bounds = [];
+        const simplifiedWaypoints = [];
+        const hourlyCounts = Array(24).fill(0);
+        let lastLat = null, lastLon = null;
+        const sectorAngle = 140, sectorRadius = 2000; 
+
+        filteredData.forEach(item => {
+            const lat = parseFloat(item['Latitude']);
+            const lon = parseFloat(item['Longitude']);
+            const az = parseFloat(item['Azimute']);
+            const latLon = [lat, lon];
+            bounds.push(latLon);
+            const popup = `<b>Célula:</b> ${item['Célula Origem'] || 'N/A'}<br><b>Início:</b> ${formatDateTime(item._timestamp)}<br><b>Arquivo:</b> ${item._sourceFileName || 'N/A'}<br><b>Endereço:</b> ${item['Endereço'] || 'N/A'}<br><b>Cidade:</b> ${item['Cidade'] || 'N/A'} - ${item['Distrito'] || 'N/A'}<br><b>Lat:</b> ${lat} | <b>Lon:</b> ${lon}<br><b>Azimute:</b> ${isFinite(az) ? az + '°' : 'N/A'}`;
+            markersLayer.addLayer(L.circleMarker(latLon, {radius: 5, color: '#1f6feb', fillOpacity: 0.8}).bindPopup(popup));
+            if(isFinite(az)){ sectorLayer.addLayer(L.polygon(createSectorPolygon(lat, lon, az, sectorAngle, sectorRadius), { color: '#FF0000', fillColor: '#FF0000', fillOpacity: 0.1, weight: 1, interactive: false })); }
+            if (lat !== lastLat || lon !== lastLon) { simplifiedWaypoints.push(L.latLng(lat, lon)); lastLat = lat; lastLon = lon; }
+            hourlyCounts[item._timestamp.getHours()]++;
+        });
+
+        routeLayer.clearLayers(); 
+        if (simplifiedWaypoints.length > 1) {
+            routingControl = L.Routing.control({ waypoints: simplifiedWaypoints, show: false, addWaypoints: false, fitSelectedRoutes: false, lineOptions: { styles: [] }, createMarker: function() { return null; } });
+            routingControl.on('routesfound', function(e) { L.polyline(e.routes[0].coordinates, {color: 'red', opacity: 0.8, weight: 4}).addTo(routeLayer); });
+            routingControl.addTo(map); 
+        }
+        
+        renderHourlyChart(hourlyCounts);
+        if(adjustZoom && bounds.length > 0) { map.fitBounds(bounds, {padding:[40,40]}); }
+    }
+    
+    // --- FUNÇÕES DE ATUALIZAÇÃO DE COMPONENTES (mantidas) ---
+    function updateKPIs(kpis){ if(!kpis){ document.getElementById('kpi-start-time').textContent="--"; document.getElementById('kpi-end-time').textContent="--"; document.getElementById('kpi-duration').textContent="--"; document.getElementById('kpi-total-records').textContent="0"; document.getElementById('kpi-unique-towers-filtered').textContent="0"; return; } document.getElementById('kpi-start-time').textContent=formatDateTime(kpis.startTime); document.getElementById('kpi-end-time').textContent=formatDateTime(kpis.endTime); document.getElementById('kpi-duration').textContent=formatDuration(kpis.duration); document.getElementById('kpi-total-records').textContent=kpis.totalRecords; document.getElementById('kpi-unique-towers-filtered').textContent=kpis.uniqueTowersFiltered; }
+    function renderHourlyChart(hourlyData){ const ctx=document.getElementById('hourlyChart').getContext('2d'); if(myHourlyChart){ myHourlyChart.destroy(); } myHourlyChart=new Chart(ctx,{ type:'bar', data:{ labels:Array.from({length:24},(_,i)=>`${i}h`), datasets:[{ label:'Conexões', data:hourlyData, backgroundColor:'rgba(31, 111, 235, 0.7)', borderColor:'rgba(31, 111, 235, 1)', borderWidth:1 }] }, options:{ responsive:true, scales:{y:{beginAtZero:true}}, plugins:{legend:{display:false}} } }); }
+    function renderFilterList(towerData){ const filterListDiv=document.getElementById('tower-filter-list'); const searchTerm=document.getElementById('erb-search').value.toLowerCase(); const checkedState={}; filterListDiv.querySelectorAll('.tower-filter-cb').forEach(cb=>{ checkedState[cb.value]=cb.checked; }); const sortedTowers=Object.entries(towerData).sort(([,a],[,b])=>b-a); let html='<ul>'; if(sortedTowers.length===0){ html='<small>Nenhuma ERB com ID encontrada nos dados filtrados.</small>'; }else{ for(const [id,count] of sortedTowers){ const isChecked=checkedState.hasOwnProperty(id)?checkedState[id]:true; const displayStyle=id.toLowerCase().includes(searchTerm)?'':'style="display: none;"'; html+=`<li ${displayStyle}><label title="${id}"><input type="checkbox" class="tower-filter-cb" value="${id}" ${isChecked?'checked':''}><span class="erb-id">${id}</span><span class="count">${count}</span></label></li>`; } html+='</ul>'; } filterListDiv.innerHTML=html; filterListDiv.removeEventListener('change',handleErbFilterChange); filterListDiv.addEventListener('change',handleErbFilterChange); }
+    function updateFilterListVisibility(filteredTowerCounts){ const filterListDiv=document.getElementById('tower-filter-list'); const searchTerm=document.getElementById('erb-search').value.toLowerCase(); filterListDiv.querySelectorAll('li').forEach(item=>{ const checkbox=item.querySelector('.tower-filter-cb'); const erbIdElement=item.querySelector('.erb-id'); const countElement=item.querySelector('.count'); if(checkbox&&erbIdElement&&countElement){ const erbId=checkbox.value; const count=filteredTowerCounts[erbId]||0; countElement.textContent=count; const displayStyle=erbId.toLowerCase().includes(searchTerm)?'':'style="display: none;"'; item.style.display=displayStyle?'none':''; } }); }
+    function handleErbFilterChange(){ rerenderDashboard(false); }
+    function getDateTimeFilters(){ let startDate=null,endDate=null; const sdVal=document.getElementById('start-date').value; const edVal=document.getElementById('end-date').value; if(sdVal){ const [year,month,day]=sdVal.split('-').map(Number); startDate=new Date(year,month-1,day,0,0,0,0); } if(edVal){ const [year,month,day]=edVal.split('-').map(Number); endDate=new Date(year,month-1,day,23,59,59,999); } const startTime=document.getElementById('start-time').value||"00:00"; const endTime=document.getElementById('end-time').value||"23:59"; const startParts=startTime.split(':'); const endParts=endTime.split(':'); const startMinutes=(+startParts[0]*60)+(+startParts[1]); const endMinutes=(+endParts[0]*60)+(+endParts[1]); return {startDate,endDate,startMinutes,endMinutes}; }
+    function resetTimeFilters(){ if(originalMinDate&&originalMaxDate){ document.getElementById('start-date').value=formatDateForInput(originalMinDate); document.getElementById('end-date').value=formatDateForInput(originalMaxDate); }else{ document.getElementById('start-date').value=""; document.getElementById('end-date').value=""; } document.getElementById('start-time').value="00:00"; document.getElementById('end-time').value="23:59"; rerenderDashboard(true); }
+    function clearDashboardVisuals(){ markersLayer.clearLayers(); sectorLayer.clearLayers(); routeLayer.clearLayers(); if(routingControl){ map.removeControl(routingControl); routingControl=null; } updateKPIs(null); renderHourlyChart([]); document.getElementById('tower-filter-list').innerHTML='<small>Carregue um arquivo...</small>'; document.getElementById('kpi-unique-towers-total').textContent='0'; }
+    function clearAllData(){ allProcessedData=[]; allTowerCounts={}; loadedFileNames.clear(); originalMinDate=null; originalMaxDate=null; totalUniqueTowersInFile=0; document.getElementById('start-date').value=""; document.getElementById('end-date').value=""; document.getElementById('start-time').value="00:00"; document.getElementById('end-time').value="23:59"; document.getElementById('erb-search').value=''; document.getElementById('load-status').textContent='Nenhum arquivo carregado.'; document.getElementById('loaded-files-list').innerHTML=''; clearDashboardVisuals(); map.setView([-15,-55],5); }
+    function filterErbList(){ const searchTerm=document.getElementById('erb-search').value.toLowerCase(); const listItems=document.querySelectorAll('#tower-filter-list li'); listItems.forEach(item=>{ const erbIdElement=item.querySelector('.erb-id'); const erbId=erbIdElement?erbIdElement.textContent.toLowerCase():''; if(erbId.includes(searchTerm)){ item.style.display=''; }else{ item.style.display='none'; } }); }
+    function updateLoadedFilesUI(){ const listElement=document.getElementById('loaded-files-list'); listElement.innerHTML=''; loadedFileNames.forEach(fileName=>{ const li=document.createElement('li'); li.textContent=fileName; const removeBtn=document.createElement('button'); removeBtn.textContent='X'; removeBtn.className='remove-file-btn'; removeBtn.title=`Remover ${fileName}`; removeBtn.dataset.filename=fileName; li.appendChild(removeBtn); listElement.appendChild(li); }); listElement.removeEventListener('click',handleRemoveFile); listElement.addEventListener('click',handleRemoveFile); }
+    function handleRemoveFile(event){ if(event.target.classList.contains('remove-file-btn')){ const fileNameToRemove=event.target.dataset.filename; if(fileNameToRemove){ allProcessedData=allProcessedData.filter(r=>r._sourceFileName!==fileNameToRemove); loadedFileNames.delete(fileNameToRemove); updateLoadedFilesUI(); recalculateGlobalsAndRender(); if(loadedFileNames.size>0){ document.getElementById('load-status').textContent=`${allProcessedData.length} registros totais carregados de ${loadedFileNames.size} arquivo(s).`; }else{ document.getElementById('load-status').textContent='Nenhum arquivo carregado.'; } } } }
+    function recalculateGlobalsAndRender(){ if(allProcessedData.length===0){ clearAllData(); return; } allTowerCounts={}; allProcessedData.forEach(r=>{ const towerId=r['Célula Origem']; if(towerId){ allTowerCounts[towerId]=(allTowerCounts[towerId]||0)+1; } }); allProcessedData.sort((a, b) => a._timestamp - b._timestamp); originalMinDate=allProcessedData[0]._timestamp; originalMaxDate=allProcessedData[allProcessedData.length-1]._timestamp; document.getElementById('start-date').value=formatDateForInput(originalMinDate); document.getElementById('end-date').value=formatDateForInput(originalMaxDate); totalUniqueTowersInFile=new Set(allProcessedData.map(r=>r['Célula Origem']).filter(Boolean)).size; document.getElementById('kpi-unique-towers-total').textContent=totalUniqueTowersInFile; renderFilterList(allTowerCounts); rerenderDashboard(true); }
+
+    // --- LÓGICA DE CARREGAMENTO DE ARQUIVO (v26 - Focada em CSV Linha 8) ---
+
+    function processSingleFile(fileData, fileName) {
+        console.log(`Processando CSV ${fileName}...`);
+        const headerRowIndex = 7; 
+        const dataStartIndex = 8; 
+        
+        if (!fileData || fileData.length <= headerRowIndex) {
+            console.warn(`  -> Arquivo ${fileName} tem ${fileData ? fileData.length : 0} linhas, insuficiente para cabeçalho na linha 8.`);
+            return []; 
+        }
+
+        const headerRow = fileData[headerRowIndex];
+        const dataRows = fileData.slice(dataStartIndex);
+        console.log(`  -> Cabeçalho encontrado (linha 8):`, headerRow); 
+        console.log(`  -> Número de linhas de dados recebidas pela função: ${dataRows.length}`); 
+        const colMap = {};
+        let missingColumns = []; 
+        
+        headerRow.forEach((colName, index) => {
+            if (colName) { 
+                 const lowerCol = String(colName).toLowerCase().trim(); 
+                 if (lowerCol.includes('célula') || lowerCol.includes('celula') || lowerCol.includes('cell')) colMap.cellId = index;
+                 else if (lowerCol.includes('início') || lowerCol.includes('inicio') || lowerCol.includes('start') || lowerCol.includes('time')) colMap.startTime = index;
+                 else if (lowerCol.includes('latitude') || lowerCol.includes('lat')) colMap.lat = index;
+                 else if (lowerCol.includes('longitude') || lowerCol.includes('lon')) colMap.lon = index;
+                 else if (lowerCol.includes('azimute') || lowerCol.includes('azimuth')) colMap.azimuth = index;
+                 else if (lowerCol.includes('endereço') || lowerCol.includes('endereco') || lowerCol.includes('address')) colMap.address = index;
+                 else if (lowerCol.includes('distrito') || lowerCol.includes('district')) colMap.district = index;
+                 else if (lowerCol.includes('cidade') || lowerCol.includes('city')) colMap.city = index;
+            }
+        });
+
+        if (colMap.startTime === undefined) missingColumns.push('Início');
+        if (colMap.lat === undefined) missingColumns.push('Latitude');
+        if (colMap.lon === undefined) missingColumns.push('Longitude');
+
+        if (missingColumns.length > 0) {
+             console.warn(`  -> Colunas essenciais (${missingColumns.join(', ')}) não encontradas no cabeçalho da linha 8 do arquivo ${fileName}. Verifique os nomes das colunas.`);
+             return [];
+        }
+        console.log(`  -> Mapeamento de colunas:`, colMap); 
+
+        let processedRows = 0; 
+        let skippedRows = { invalidDate: 0, invalidLatLon: 0, otherError: 0 }; 
+
+        const resultData = dataRows.map((row, rowIndex) => { 
+            const currentRowIndexForLog = dataStartIndex + rowIndex + 1; 
+            try {
+                let timestamp = new Date(NaN); 
+                const startTimeRaw = row[colMap.startTime];
+                let dateParseMethod = "Nenhum"; 
+                
+                if (typeof startTimeRaw === 'string') {
+                    const modifiedTimeStr = startTimeRaw.replace(/[–-]/, ' ').trim(); 
+                    const parts = modifiedTimeStr.split(' ');
+                    if (parts.length === 2) {
+                       const dateParts = parts[0].trim().split('/');
+                       const timeParts = parts[1].trim().split(':');
+                       if (dateParts.length === 3 && timeParts.length === 3) {
+                            const day = parseInt(dateParts[0], 10);
+                            const month = parseInt(dateParts[1], 10); 
+                            const year = parseInt(dateParts[2], 10);
+                            const hour = parseInt(timeParts[0], 10);
+                            const minute = parseInt(timeParts[1], 10);
+                            const second = parseInt(timeParts[2], 10);
+
+                            if (!isNaN(day) && !isNaN(month) && !isNaN(year) &&
+                                !isNaN(hour) && !isNaN(minute) && !isNaN(second) &&
+                                month >= 1 && month <= 12 && day >= 1 && day <= 31 && year > 1900 
+                            ) {
+                                timestamp = new Date(year, month - 1, day, hour, minute, second);
+                                dateParseMethod = "String dd/mm/yyyy HH:MM:SS (Subst)";
+                            }
+                       }
+                    }
+                    if (isNaN(timestamp.getTime())) { 
+                         timestamp = new Date(startTimeRaw);
+                         if (!isNaN(timestamp.getTime())) {
+                             dateParseMethod = "String Padrão JS";
+                         }
+                    }
+                } 
+                
+                if (isNaN(timestamp.getTime())) {
+                    skippedRows.invalidDate++;
+                    if (skippedRows.invalidDate <= 10) { 
+                         console.warn(`  -> Linha ${currentRowIndexForLog}: Data inválida ou vazia (Valor: "${startTimeRaw}"). Pulando linha.`);
+                    }
+                    return null; 
+                }
+                
+                const latStr = String(row[colMap.lat] || '').trim(); 
+                const lonStr = String(row[colMap.lon] || '').trim();
+                const lat = parseFloat(latStr.replace(',', '.')); 
+                const lon = parseFloat(lonStr.replace(',', '.'));
+                
+                if (!isFinite(lat) || !isFinite(lon)) {
+                    skippedRows.invalidLatLon++;
+                     if (skippedRows.invalidLatLon <= 10) { 
+                         console.warn(`  -> Linha ${currentRowIndexForLog}: Lat/Lon inválido ou vazio (Lat="${latStr}", Lon="${lonStr}"). Pulando linha.`);
+                     }
+                    return null; 
+                }
+                
+                processedRows++; 
+                return {
+                    'Célula Origem': colMap.cellId !== undefined ? row[colMap.cellId] : null,
+                    'Início': startTimeRaw, 
+                    '_timestamp': timestamp,
+                    'Latitude': lat,
+                    'Longitude': lon,
+                    'Azimute': colMap.azimuth !== undefined ? parseFloat(String(row[colMap.azimuth] || '').replace(',', '.')) : NaN, 
+                    'Endereço': colMap.address !== undefined ? row[colMap.address] : null,
+                    'Distrito': colMap.district !== undefined ? row[colMap.district] : null,
+                    'Cidade': colMap.city !== undefined ? row[colMap.city] : null,
+                    '_sourceFileName': fileName
+                };
+            } catch (e) { 
+                skippedRows.otherError++;
+                 if (skippedRows.otherError <= 5) { 
+                     console.error(`  -> Linha ${currentRowIndexForLog}: Erro inesperado processando linha:`, row, e); 
+                 }
+                return null; 
+            }
+        }).filter(Boolean); 
+
+        console.log(`  -> Processamento ${fileName} concluído: ${processedRows} linhas válidas.`); 
+        if (skippedRows.invalidDate > 0) console.warn(`    - ${skippedRows.invalidDate} linhas puladas por data inválida/vazia (primeiros 10 erros mostrados acima).`);
+        if (skippedRows.invalidLatLon > 0) console.warn(`    - ${skippedRows.invalidLatLon} linhas puladas por Lat/Lon inválido/vazio (primeiros 10 erros mostrados acima).`);
+        if (skippedRows.otherError > 0) console.warn(`    - ${skippedRows.otherError} linhas puladas por outros erros (ver console para detalhes).`);
+        
+        return resultData;
+    }
+    
+    function handleFileSelection(event) {
+        const files = event.target.files;
+        if (!files || files.length === 0) return; 
+        
+        const filesToLoad = Array.from(files).filter(file => {
+            if (loadedFileNames.has(file.name)) {
+                document.getElementById('load-status').textContent = `Arquivo "${file.name}" já carregado. Ignorando.`;
+                return false;
+            }
+            const fileExtension = file.name.split('.').pop().toLowerCase();
+            if (fileExtension !== 'csv') {
+                 console.warn(`Arquivo ${file.name} não é CSV. Ignorando.`);
+                 document.getElementById('load-status').textContent = `Arquivo "${file.name}" não é CSV. Ignorando.`;
+                 return false;
+            }
+            return true;
+        });
+
+        if (filesToLoad.length === 0) {
+             event.target.value = null; 
+             return;
+        }
+        
+        document.getElementById('load-status').textContent = `Carregando ${filesToLoad.length} novo(s) arquivo(s) CSV...`;
+
+        const filePromises = filesToLoad.map(file => {
+            return new Promise((resolve, reject) => {
+                Papa.parse(file, {
+                    skipEmptyLines: true,
+                    encoding: "UTF-8", 
+                    delimiter: ";", 
+                    complete: (results) => {
+                        // Verifica delimitador antes de resolver
+                        if (results.data.length > 7 && results.data[7].length > 1) {
+                            console.log(`CSV ${file.name} parseado com ';', ${results.data.length} linhas.`);
+                            resolve({fileName: file.name, data: results.data});
+                        } else {
+                            console.warn(`Delimitador ';' não parece correto para ${file.name}. Tentando ','.`);
+                             Papa.parse(file, {
+                                skipEmptyLines: true, encoding: "UTF-8", delimiter: ",",
+                                complete: (results2) => {
+                                    if (results2.data.length > 7 && results2.data[7].length > 1) {
+                                        console.log(`CSV ${file.name} parseado com ',', ${results2.data.length} linhas.`);
+                                        resolve({fileName: file.name, data: results2.data});
+                                    } else {
+                                        console.error(`Não foi possível determinar o delimitador correto para ${file.name}.`);
+                                        reject({fileName: file.name, error: new Error('Delimitador CSV inválido ou arquivo mal formatado.')});
+                                    }
+                                },
+                                error: (err2) => reject({fileName: file.name, error: err2})
+                             });
+                        }
+                    },
+                    error: (err) => reject({fileName: file.name, error: err})
+                });
+            });
+        });
+
+        Promise.all(filePromises)
+            .then(resultsArray => {
+                let newlyProcessedData = [];
+                let filesSuccessfullyLoaded = 0;
+                resultsArray.forEach(result => {
+                    const processed = processSingleFile(result.data, result.fileName); 
+                    if (processed.length > 0) {
+                        newlyProcessedData = newlyProcessedData.concat(processed);
+                        loadedFileNames.add(result.fileName); 
+                        filesSuccessfullyLoaded++;
+                    } 
+                });
+                
+                const statusMsgBase = `${allProcessedData.length + newlyProcessedData.length} registros totais carregados de ${loadedFileNames.size} arquivo(s).`;
+                const consoleMsg = " Verifique o console (Ctrl+Shift+I) para detalhes sobre linhas ignoradas.";
+
+                if (newlyProcessedData.length === 0) {
+                     if (allProcessedData.length === 0) alert("Nenhum dado válido encontrado nos novos arquivos CSV selecionados." + consoleMsg);
+                     document.getElementById('load-status').textContent = statusMsgBase + consoleMsg;
+                     event.target.value = null; 
+                     return;
+                }
+
+                allProcessedData = allProcessedData.concat(newlyProcessedData);
+                allProcessedData.sort((a, b) => a._timestamp - b._timestamp); 
+                
+                recalculateGlobalsAndRender();
+                updateLoadedFilesUI(); 
+                
+                document.getElementById('load-status').textContent = statusMsgBase + consoleMsg;
+                event.target.value = null; 
+
+            })
+            .catch(errorInfo => {
+                console.error("Erro no Promise.all:", errorInfo); 
+                alert(`Erro ao processar o arquivo CSV "${errorInfo.fileName}": ${errorInfo.error.message || errorInfo.error}`);
+                document.getElementById('load-status').textContent = 'Erro ao carregar arquivos.' + consoleMsg;
+                 event.target.value = null; 
+            });
+    }
+    
+    // --- FUNÇÕES MODAL AJUDA ---
+    function openHelpModal() {
+        document.getElementById('help-modal-overlay').style.display = 'flex';
+    }
+    function closeHelpModal() {
+        document.getElementById('help-modal-overlay').style.display = 'none';
+    }
+
+    // --- SETUP INICIAL ---
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+          map = L.map('map').setView([-15, -55], 5);
+          baseLayers['Mapa'] = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+          }).addTo(map);
+
+          sectorLayer.addTo(map);
+          markersLayer.addTo(map);
+          
+          overlayLayers = {
+              "Setores de Cobertura (140°)": sectorLayer,
+              "Rota de Rua (Simplificada)": routeLayer,
+              "Pontos de Conexão (ERBs)": markersLayer
+          };
+          
+          L.control.layers(baseLayers, overlayLayers, {collapsed: false}).addTo(map);
+          
+          // Listeners
+          document.getElementById('fileInput').addEventListener('change', handleFileSelection);
+          document.getElementById('apply-time-filter').addEventListener('click', () => rerenderDashboard(true));
+          document.getElementById('reset-time-filter').addEventListener('click', resetTimeFilters); 
+          document.getElementById('erb-search').addEventListener('input', filterErbList);
+          
+          // Listeners Modal Ajuda
+          document.getElementById('help-button').addEventListener('click', openHelpModal);
+          document.getElementById('help-modal-close').addEventListener('click', closeHelpModal);
+          document.getElementById('help-modal-overlay').addEventListener('click', function(event) {
+              // Fecha se clicar fora do conteúdo
+              if (event.target === this) {
+                  closeHelpModal();
+              }
+          });
+
+      } catch (e) {
+          console.error("Erro fatal no DOMContentLoaded:", e);
+          document.body.innerHTML = '<div style="padding: 20px; text-align: center; font-family: sans-serif;">' +
+            '<h1>Erro ao carregar o mapa</h1>' +
+            '<p>Não foi possível carregar as bibliotecas do mapa. Por favor, verifique sua conexão com a internet e tente recarregar a página.</p>' +
+            '<p>Erro: <strong>' + e.message + '</strong></p>' +
+            '</div>';
+      }
+    });
+  </script>
+</body>
+</html>
